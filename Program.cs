@@ -8,45 +8,84 @@ class Buffers
     public int NumberOfBuffers;
     public string[] buffers;
 
-    public Buffers(int NumberOfBuffers) {
+    // Constructor
+    public Buffers(int NumberOfBuffers)
+    {
         this.NumberOfBuffers = NumberOfBuffers;
         buffers = new string[NumberOfBuffers];
     }
-    
-    void CopyToBuffer(string[] buffers, int id_buf)
+
+
+    // Get content of PRIMARY selection and save it into indicated buffer
+    public void CopyToBuffer(int id_buf)
     {
-        ProcessStartInfo psi = new ProcessStartInfo("xclip", "-sel PRIMARY -o") {
+        string content = this.GetClipBoardContent("PRIMARY");
+        this.buffers[id_buf] = content;
+    }
+    
+    // Paste the content of the indicated buffer
+    public void PasteFromBuffer(IntPtr dpy, int id_buf)
+    {
+        // Temporarily save content of CLIPBOARD
+        string content = GetClipBoardContent("CLIPBOARD");
+
+        // Change content of CLIPBOARD to buffer content
+        this.SetClipboardContent("CLIPBOARD", buffers[id_buf]);
+
+        // SimulateCtrlShiftV KeyPress
+        this.SimulateCtrlShiftV(dpy);
+
+        // Return original value
+        this.SetClipboardContent("CLIPBOARD", content);
+    }
+
+
+    // Calls XCLIP and returns the indicated selection content
+    private string GetClipBoardContent(string selection) {
+        ProcessStartInfo psi = new ProcessStartInfo("xclip", $"-sel {selection} -o") {
             RedirectStandardOutput = true,
             UseShellExecute = false
         };
-
         using var p = Process.Start(psi);
         if (p == null) {
-            Console.WriteLine($"[-] Error xclip failed to initialize");
-            return;
+            Console.WriteLine("[-] Error xclip failed to initialize");
+            return String.Empty;
         } 
         string content = p.StandardOutput.ReadToEnd();
-        Console.WriteLine($"{content}");
-        p.WaitForExit();
-
-        this.buffers[id_buf] = content;
+        return content;
     }
 
-    public void PasteFromBuffer(IntPtr dpy) {
-        uint h = (uint)XKeysymToKeycode(dpy, XK_H);
-        uint i = (uint)XKeysymToKeycode(dpy, XK_I);
+    // Calls XCLIP and SETS the content for a selection
+    private void SetClipboardContent(string selection, string content) {
+        ProcessStartInfo psi = new ProcessStartInfo("xclip", $"-sel {selection}") {
+            RedirectStandardInput = true,
+            UseShellExecute = false
+        };
+        using var p = Process.Start(psi);
+        if (p == null) {
+            Console.WriteLine("[-] Error xclip failed to initialize");
+            return;
+        }
+        p.StandardInput.Write(content);
+    }
+    
+    // Simulates key strokes for pasting
+    private void SimulateCtrlShiftV(IntPtr dpy)
+    { 
+        uint ctrl  = (uint)XKeysymToKeycode(dpy, XK_Control_L);
+        uint shift = (uint)XKeysymToKeycode(dpy, XK_Shift_L);
+        uint v     = (uint)XKeysymToKeycode(dpy, XK_V);
 
-        // H
-        XTestFakeKeyEvent(dpy, h, true, 0); // Press
-        XTestFakeKeyEvent(dpy, h, false, 0); // Release
+        XTestFakeKeyEvent(dpy, ctrl, true, 0);   // Ctrl Down
+        XTestFakeKeyEvent(dpy, shift, true, 0);  // Shift Down
+        XTestFakeKeyEvent(dpy, v, true, 0);      // V Down
 
-        // I
-        XTestFakeKeyEvent(dpy, i, true, 0); // Press
-        XTestFakeKeyEvent(dpy, i, false, 0); // Release
+        XTestFakeKeyEvent(dpy, v, false, 0);     // V Up
+        XTestFakeKeyEvent(dpy, shift, false, 0); // Shift Up
+        XTestFakeKeyEvent(dpy, ctrl, false, 0);  // Ctrl Up
 
         XFlush(dpy);
     }
-
 
 
 }
@@ -70,8 +109,9 @@ class Program
 
         IntPtr rootWindow = XDefaultRootWindow(dpy); // Get root window
 
-        int f1_keycode = XKeysymToKeycode(dpy, XK_F1); // Translate from logic virtual key value to physical keycode
-       
+        int f1_keycode = XKeysymToKeycode(dpy, XK_F1); // Translate from logic virtual key (F1) value to physical keycode
+        int f2_keycode = XKeysymToKeycode(dpy, XK_F2); // Translate from logic virtual key (F2) value to physical keycode
+
         // Used to grab combinations of key such as {key}+CapsLock, etc
         uint[] lockCombos = {
             0,
@@ -80,8 +120,16 @@ class Program
             LockMask | Mod2Mask,
         };
         
-        foreach (uint mods in lockCombos) {
-            XGrabKey(dpy, f1_keycode, mods, rootWindow, true, GrabModeAsync, GrabModeAsync);
+        // Keys to grab globally
+        int[] used_keys = {
+            f1_keycode,
+            f2_keycode
+        };
+       
+        foreach (int key in used_keys) {
+            foreach (uint mods in lockCombos) {
+                XGrabKey(dpy, key, mods, rootWindow, true, GrabModeAsync, GrabModeAsync);
+            }
         }
         XSync(dpy, false);
         
@@ -92,7 +140,10 @@ class Program
                 XNextEvent(dpy, out ev);
 
                 if (ev.type == KeyRelease && ev.xkey.keycode == f1_keycode) {
-                    buffers.PasteFromBuffer(dpy);
+                    buffers.CopyToBuffer(1);
+                }
+                if (ev.type == KeyRelease && ev.xkey.keycode == f2_keycode) {
+                    buffers.PasteFromBuffer(dpy, 1);
                 }
             }
         }

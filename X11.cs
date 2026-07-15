@@ -14,8 +14,13 @@ class X11
 
     public const int GrabModeAsync = 1;
 
-    public const ulong XK_H = 0x0068;
-    public const ulong XK_I = 0x0069;
+
+    public const ulong XK_F1 = 0xffbe;
+    public const ulong XK_F2 = 0xFFBF;
+
+    public const ulong XK_Control_L = 0xffe3;
+    public const ulong XK_Shift_L = 0xffe1;
+    public const ulong XK_V = 0x0076;
 
 
     [StructLayout(LayoutKind.Sequential)]
@@ -75,7 +80,6 @@ class X11
     public static extern int XSync(IntPtr display, bool discard);
 
 
-    public const ulong XK_F1 = 0xffbe;
     [DllImport("libXtst.so.6")]
     public static extern int XTestFakeKeyEvent(
         IntPtr display,
