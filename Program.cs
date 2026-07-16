@@ -10,10 +10,8 @@ class Program
 
         // Manage key press with X11 APIs for global key grab
         IntPtr dpy = XOpenDisplay(IntPtr.Zero); // Open connection to the X11 server
-        if (dpy == IntPtr.Zero) {
-            Console.WriteLine("[-] Error XOpenDisplay failed");
-            return;
-        }
+        if (dpy == IntPtr.Zero)
+            throw new Exception("[-] Error XOpenDisplay failed");
 
         IntPtr rootWindow = XDefaultRootWindow(dpy); // Get root window
 
