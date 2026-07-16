@@ -35,6 +35,9 @@ class X11
     
     public const ulong XK_F1 = 0xffbe;
     public const ulong XK_F2 = 0xFFBF;
+    public const ulong XK_F3 = 0xFFC0;
+    public const ulong XK_F4 = 0xFFC1;
+
     public const ulong XK_Control_L = 0xffe3;
     public const ulong XK_Shift_L = 0xffe1;
     public const ulong XK_V = 0x0076;
