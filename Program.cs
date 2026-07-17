@@ -1,8 +1,23 @@
-﻿using static X11;
-
-
-class Program
+﻿class Program
 {
+
+    static void PrintHelp()
+    {
+        Console.WriteLine(
+    @"BuffClip - Network clipboard manager - Inspired by Kitty terminal
+
+    Usage:
+        buffclip server
+        buffclip client <server-ip>
+
+    Commands:
+        server              Start BuffClip in server mode.
+        client <server-ip>  Connect to a BuffClip server.
+
+    Examples:
+        buffclip server
+        buffclip client 192.168.1.100");
+    }
 
     static void InitiateNetworkListener()
     {
@@ -12,69 +27,40 @@ class Program
         thread.Start();
     }
 
-    static void Main()
+    
+    static void Main(string[] args)
     {
-        InitiateNetworkListener(); // Initiates server at 0.0.0.0:4444 Consider adjusting this via Parameters
-
-        int NUMBER_OF_BUFFERS = 2;
-        Buffers buffers = new Buffers(NUMBER_OF_BUFFERS); // Initiate buffers
-
-        // Manage key press with X11 APIs for global key grab
-        IntPtr dpy = XOpenDisplay(IntPtr.Zero); // Open connection to the X11 server
-        if (dpy == IntPtr.Zero)
-            throw new Exception("[-] Error XOpenDisplay failed");
-
-        IntPtr rootWindow = XDefaultRootWindow(dpy); // Get root window
-
-        int f1_keycode = XKeysymToKeycode(dpy, XK_F1); // Translate from logic virtual key (F1) value to physical keycode
-        int f2_keycode = XKeysymToKeycode(dpy, XK_F2); // Translate from logic virtual key (F2) value to physical keycode
-        int f3_keycode = XKeysymToKeycode(dpy, XK_F3); // Translate from logic virtual key (F3) value to physical keycode
-        int f4_keycode = XKeysymToKeycode(dpy, XK_F4); // Translate from logic virtual key (F4) value to physical keycode
-
-        // Used to grab combinations of key such as {key}+CapsLock, etc
-        uint[] lockCombos = {
-            0,
-            LockMask,
-            Mod2Mask,
-            LockMask | Mod2Mask,
-        };
-        
-        // Keys to grab globally
-        int[] used_keys = {
-            f1_keycode,
-            f2_keycode,
-            f3_keycode,
-            f4_keycode
-        };
-       
-        foreach (int key in used_keys) {
-            foreach (uint mods in lockCombos) {
-                XGrabKey(dpy, key, mods, rootWindow, true, GrabModeAsync, GrabModeAsync);
-            }
+        if (args.Length == 0) {
+            PrintHelp();
+            return;
         }
-        XSync(dpy, false);
-        
-        Console.WriteLine("[i] Esperando F1...");
-        XEvent ev;
-        try {
-            while (true) {
-                XNextEvent(dpy, out ev);
+        switch (args[0].ToLower())
+        {
+            case "server":
+                {
+                    InitiateNetworkListener(); // Initiates server at 0.0.0.0:4444 Consider adjusting this via Parameters
+                    int NUMBER_OF_BUFFERS = 2;
+                    Buffers buffers = new Buffers(NUMBER_OF_BUFFERS); // Initiate buffers
+                    HotkeyManager.ListenForKeyPress(buffers); // Waits for KeyPress/KeyRelease Events
+                    break;
+                }
 
-                if (ev.type == KeyRelease) {
-                    if (ev.xkey.keycode == f1_keycode) 
-                        buffers.CopyToBuffer(0);
-                    if (ev.xkey.keycode == f2_keycode) 
-                        buffers.PasteFromBuffer(dpy, 0);
-                    if (ev.xkey.keycode == f3_keycode) 
-                        buffers.CopyToBuffer(1);
-                    if (ev.xkey.keycode == f4_keycode) 
-                        buffers.PasteFromBuffer(dpy, 1);
-            }   }
-        }
-        catch (Exception ex) {
-            Console.WriteLine(ex);
-        }
+            case "client":
+                {
+                    if (args.Length != 2) {
+                        Console.WriteLine("Usage: buffclip client <ip>");
+                        return;
+                    }
+                    NetworkManager netman = new NetworkManager(4444);
+                    netman.Connect(args[1]);
+                    netman.SendFullSyncRequest(1);
+                    break;
+                }
 
+            default:
+                PrintHelp();
+                break;
+        }
     }
 }
 
