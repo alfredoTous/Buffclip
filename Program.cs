@@ -21,8 +21,8 @@
 
     static void InitiateNetworkListener()
     {
-        NetworkManager netman = new NetworkManager(4444);
-        Thread thread = new Thread(netman.StartServer);
+        BuffclipServer server = new BuffclipServer("0.0.0.0", 4444);        // Default values for now
+        Thread thread = new Thread(server.StartServer);
         thread.IsBackground = true;
         thread.Start();
     }
@@ -51,9 +51,9 @@
                         Console.WriteLine("Usage: buffclip client <ip>");
                         return;
                     }
-                    NetworkManager netman = new NetworkManager(4444);
-                    netman.Connect(args[1]);
-                    netman.SendFullSyncRequest(1);
+                    BuffclipClient client = new BuffclipClient("192.168.1.47", 4444);
+                    client.Connect();
+                    client.SendFullSyncRequest(1);
                     break;
                 }
 

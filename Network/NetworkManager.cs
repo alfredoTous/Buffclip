@@ -1,89 +1,16 @@
 using System.Text;
-using System.Net;
 using System.Net.Sockets;
 
 
-class NetworkManager
+abstract class NetworkManager
 {
-    private int port;
-    TcpClient? client;
-    private NetworkStream? NetStream;
+    protected byte node_id;
+    protected int port;
+    protected TcpClient? client;
+    protected NetworkStream? NetStream;
 
-    public NetworkManager(int port)
-    {
-        this.port = port;
-    }
 
-    public void StartServer()
-    {
-        TcpListener listener = new TcpListener(IPAddress.Any, this.port);
-        listener.Start();
-        Console.WriteLine($"[+] Server listening on {IPAddress.Any}:{this.port}...");
-
-        while (true) {
-            TcpClient client = listener.AcceptTcpClient();
-            Console.WriteLine($"[+] Client connected: {client.Client.RemoteEndPoint}");
-            HandleClient(client);
-        }
-    }
-
-    private void HandleClient(TcpClient client)
-    {
-        Console.WriteLine("[+] Handling client...");
-
-        this.client = client;
-        this.NetStream = client.GetStream();
-
-        try {
-            while (true) {
-                Packet packet = ReceivePacket();
-
-                switch (packet.opcode) {
-                    case Opcode.FullSync:
-                        HandleFullSyncRequest();
-                        break;
-
-                    case Opcode.UpdateBuffer:
-                        //HandleUpdateBuffer(packet);
-                        break;
-
-                    default:
-                        Console.WriteLine($"[-] Unknow opcode: {packet.opcode}");
-                        break;
-                }
-            }
-        } catch (Exception ex) {
-            Console.WriteLine($"[-] Client disconnected: {ex.Message}");
-        } finally {
-            this.NetStream?.Close();
-            client.Close();
-
-            this.NetStream = null;
-            this.client = null;
-        }
-    }
-
-    public void Connect(string ip)
-    {
-        this.client = new TcpClient();
-        Console.WriteLine($"[i] Connecting to {ip}:{this.port}...");
-        this.client.Connect(ip, this.port);
-
-        this.NetStream = this.client.GetStream();
-    }
-
-    public void SendFullSyncRequest(byte node_id)
-    {
-        Packet packet = new Packet(node_id, Opcode.FullSync);
-        SendPacket(packet);
-    }
-
-    public void HandleFullSyncRequest()
-    {
-        Console.WriteLine("Recibida la FullSyncRequest, preparando paquetes...");
-    }
-
-    private void SendPacket(Packet packet)
+    protected void SendPacket(Packet packet)
     {
 
         if (this.NetStream == null)
@@ -97,7 +24,7 @@ class NetworkManager
 
     }
 
-    private Packet ReceivePacket()
+    protected Packet ReceivePacket()
     {
         if (this.NetStream == null)
             throw new Exception("[-] Not connected");
@@ -140,7 +67,7 @@ enum Opcode : byte
 // Protocol
 class Packet
 {
-    public byte     node_id;      // Machine that send the Packet (maybe change for IP)
+    public byte     node_id;      // Machine that send the Packet
     public Opcode   opcode;       // Intruction
     public byte     id_buf;       // Buffer ID to operate
     public int      len;          // Length of content
