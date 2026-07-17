@@ -2,9 +2,12 @@ using System.Text;
 using System.Net;
 using System.Net.Sockets;
 
+
 class NetworkManager
 {
     private int port;
+    TcpClient? client;
+    private NetworkStream? NetStream;
 
     public NetworkManager(int port)
     {
@@ -17,22 +20,111 @@ class NetworkManager
         listener.Start();
         Console.WriteLine($"[+] Server listening on {IPAddress.Any}:{this.port}...");
 
-        // Accept client connection
-        using TcpClient client = listener.AcceptTcpClient();
-        Console.WriteLine("Client connected.");
+        while (true) {
+            TcpClient client = listener.AcceptTcpClient();
+            Console.WriteLine($"[+] Client connected: {client.Client.RemoteEndPoint}");
+            HandleClient(client);
+        }
+    }
 
-        NetworkStream NetStream = client.GetStream();
-        byte[] tcpBuffer = new byte[1024];
-        int bytesRead = NetStream.Read(tcpBuffer, 0, tcpBuffer.Length);
+    private void HandleClient(TcpClient client)
+    {
+        Console.WriteLine("[+] Handling client...");
 
-        string message = Encoding.UTF8.GetString(tcpBuffer, 0, tcpBuffer.Length);
+        this.client = client;
+        this.NetStream = client.GetStream();
 
-        Console.WriteLine($"Received msg: {message}");
+        try {
+            while (true) {
+                Packet packet = ReceivePacket();
 
-        string response = "Hola aaaaa";
-        byte[] responseData = Encoding.UTF8.GetBytes(response);
-        NetStream.Write(responseData);
+                switch (packet.opcode) {
+                    case Opcode.FullSync:
+                        HandleFullSyncRequest();
+                        break;
 
+                    case Opcode.UpdateBuffer:
+                        //HandleUpdateBuffer(packet);
+                        break;
+
+                    default:
+                        Console.WriteLine($"[-] Unknow opcode: {packet.opcode}");
+                        break;
+                }
+            }
+        } catch (Exception ex) {
+            Console.WriteLine($"[-] Client disconnected: {ex.Message}");
+        } finally {
+            this.NetStream?.Close();
+            client.Close();
+
+            this.NetStream = null;
+            this.client = null;
+        }
+    }
+
+    public void Connect(string ip)
+    {
+        this.client = new TcpClient();
+        Console.WriteLine($"[i] Connecting to {ip}:{this.port}...");
+        this.client.Connect(ip, this.port);
+
+        this.NetStream = this.client.GetStream();
+    }
+
+    public void SendFullSyncRequest(byte node_id)
+    {
+        Packet packet = new Packet(node_id, Opcode.FullSync);
+        SendPacket(packet);
+    }
+
+    public void HandleFullSyncRequest()
+    {
+        Console.WriteLine("Recibida la FullSyncRequest, preparando paquetes...");
+    }
+
+    private void SendPacket(Packet packet)
+    {
+
+        if (this.NetStream == null)
+            throw new Exception("[-] Not connected");
+
+        byte[] packetBytes = packet.ToBytes();
+        byte[] lenBytes    = BitConverter.GetBytes(packetBytes.Length);
+
+        this.NetStream.Write(lenBytes, 0, lenBytes.Length); // Send a header for packet total len
+        this.NetStream.Write(packetBytes, 0, packetBytes.Length);
+
+    }
+
+    private Packet ReceivePacket()
+    {
+        if (this.NetStream == null)
+            throw new Exception("[-] Not connected");
+
+        byte[] lenBytes = new byte[sizeof(int)];
+        ReadExact(lenBytes, sizeof(int)); // Read packet total len
+        
+        int packetLen = BitConverter.ToInt32(lenBytes);
+        byte[] packetBytes = new byte[packetLen];
+        ReadExact(packetBytes, packetLen);
+
+        return Packet.FromBytes(packetBytes);
+
+    }
+
+    private void ReadExact(byte[] buffer, int len)
+    {
+        int totalRead = 0;
+
+        while (totalRead < len) {
+            int bytesRead = this.NetStream!.Read(buffer, totalRead, len-totalRead);
+            
+            if (bytesRead == 0)
+                throw new Exception("Connection closed");
+
+            totalRead+=bytesRead;
+        }
     }
 
 
@@ -64,24 +156,34 @@ class Packet
         this.content  = content;
     }
 
-
-    static public byte[] ToBytes(Packet packet)
+    // Constructor for FullSync packets
+    public Packet(byte node_id, Opcode opcode)
     {
-        byte[] packetBytes  = new byte[sizeof(byte)+sizeof(Opcode)+sizeof(byte)+sizeof(int)+packet.len]; // Create new byte array of size received packet
+        this.node_id = node_id;
+        this.opcode  = opcode;
+        this.id_buf  = 0;
+        this.len     = 0;
+        this.content = "";
+    }
 
-        byte[] lenBytes     = BitConverter.GetBytes(packet.len);        // Get bytes for packet.len;
-        byte[] contentBytes = Encoding.UTF8.GetBytes(packet.content);   // Get bytes for packet.content;
+
+    public byte[] ToBytes()
+    {
+        byte[] packetBytes  = new byte[sizeof(byte)+sizeof(Opcode)+sizeof(byte)+sizeof(int)+this.len]; // Create new byte array of size received packet
+
+        byte[] lenBytes     = BitConverter.GetBytes(this.len);        // Get bytes for packet.len;
+        byte[] contentBytes = Encoding.UTF8.GetBytes(this.content);   // Get bytes for packet.content;
 
         // Fill up byte array
         int idx = 0;
 
-        packetBytes[idx] = packet.node_id;  // node_id
+        packetBytes[idx] = this.node_id;  // node_id
         idx++;
 
-        packetBytes[idx] = (byte)packet.opcode; // opcode
+        packetBytes[idx] = (byte)this.opcode; // opcode
         idx++;
 
-        packetBytes[idx] = packet.id_buf;   // id_buf
+        packetBytes[idx] = this.id_buf;   // id_buf
         idx++;
 
         Array.Copy(lenBytes, 0, packetBytes, idx, lenBytes.Length); // len
