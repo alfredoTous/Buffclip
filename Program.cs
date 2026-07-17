@@ -29,12 +29,20 @@ class Program
     }
 
 
-    static void InitiateNetworkListener()
+    static void InitServer()
     {
         BuffclipServer server = new BuffclipServer("0.0.0.0", 4443);        // Default values for now
-        Thread thread = new Thread(server.StartServer);     // Starts server and handles client connections
+        Thread thread = new Thread(server.Start);     // Starts server and handles client connections
         thread.IsBackground = true;
         thread.Start();
+    }
+
+    static void InitClient()
+    {
+        BuffclipClient client = new BuffclipClient("192.168.1.47", 4443);
+        Thread thread = new Thread(client.Start);
+        thread.IsBackground = true;
+        thread.Start(); 
     }
 
     
@@ -48,7 +56,7 @@ class Program
         {
             case "server":
                 {
-                    InitiateNetworkListener(); // Initiates server at 0.0.0.0:4444 Consider adjusting this via Parameters
+                    InitServer(); // Initiates server at 0.0.0.0:4444 Consider adjusting this via Parameters
                     HotkeyManager.ListenForKeyPress(); // Waits for KeyPress/KeyRelease Events
                     break;
                 }
@@ -59,10 +67,8 @@ class Program
                         Console.WriteLine("Usage: buffclip client <ip>");
                         return;
                     }
-                    BuffclipClient client = new BuffclipClient("192.168.1.47", 4443);
-                    client.Connect();
-                    client.SendFullSyncRequest();
-                    client.GetFullSyncResponse();
+                    InitClient(); // Initiates client and listens for Server packet
+                    HotkeyManager.ListenForKeyPress();
                     break;
                 }
 

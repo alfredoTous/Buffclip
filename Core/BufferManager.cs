@@ -22,6 +22,7 @@ class BuffersManager
     {
         string content = this.clip.GetClipBoardContent("PRIMARY");
         this.buffers[id_buf] = content;
+        
     }
 
 

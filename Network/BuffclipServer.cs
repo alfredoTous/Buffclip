@@ -14,7 +14,7 @@ class BuffclipServer : NetworkManager
         this.node_id       = 1;     // 1 for now
     }
 
-    public void StartServer()
+    public void Start()
     {
         TcpListener listener = new TcpListener(IPAddress.Any, this.port);
         listener.Start();
@@ -72,6 +72,12 @@ class BuffclipServer : NetworkManager
             SendPacket(packet);
         }
         Console.WriteLine("Paquetes enviados");
+    }
+
+    public void SendUpdateBuffer(byte id_buf, string content)
+    {
+        Packet packet = new Packet(this.node_id, Opcode.UpdateBuffer, id_buf, content);
+        SendPacket(packet);
     }
 
 
