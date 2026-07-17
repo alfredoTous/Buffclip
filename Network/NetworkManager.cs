@@ -10,6 +10,9 @@ abstract class NetworkManager
     protected NetworkStream? NetStream;
 
 
+    public abstract void SendUpdateBuffer(byte id_buf);
+
+
     protected void SendPacket(Packet packet)
     {
 

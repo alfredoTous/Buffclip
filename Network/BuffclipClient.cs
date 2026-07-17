@@ -55,6 +55,7 @@ class BuffclipClient : NetworkManager
         Globals.BuffersManager.SetBuf(packet.id_buf, packet.content);
         Console.WriteLine($"[+] Buffer #{packet.id_buf} updated.");
     }
+
     public void ListenForServerPackets()
     {
         Console.WriteLine("[+] Listening for server packets...");
@@ -89,6 +90,12 @@ class BuffclipClient : NetworkManager
             this.NetStream = null;
             this.client = null;
         }
+    }
+
+    public override void SendUpdateBuffer(byte id_buf)
+    {
+        Packet packet = new Packet(this.node_id, Opcode.UpdateBuffer, id_buf, Globals.BuffersManager.GetBuf(id_buf));
+        SendPacket(packet);
     }
 
 }

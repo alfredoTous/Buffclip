@@ -40,11 +40,11 @@ class BuffclipServer : NetworkManager
 
                 switch (packet.opcode) {
                     case Opcode.FullSync:
-                        HandleFullSyncRequest();
+                        this.HandleFullSyncRequest();
                         break;
 
                     case Opcode.UpdateBuffer:
-                        //HandleUpdateBuffer(packet);
+                        this.HandleUpdateBuffer(packet);
                         break;
 
                     default:
@@ -74,10 +74,17 @@ class BuffclipServer : NetworkManager
         Console.WriteLine("Paquetes enviados");
     }
 
-    public void SendUpdateBuffer(byte id_buf, string content)
+
+    public override void SendUpdateBuffer(byte id_buf)
     {
-        Packet packet = new Packet(this.node_id, Opcode.UpdateBuffer, id_buf, content);
+        Packet packet = new Packet(this.node_id, Opcode.UpdateBuffer, id_buf, Globals.BuffersManager.GetBuf(id_buf));
         SendPacket(packet);
+    }
+
+
+    public void HandleUpdateBuffer(Packet packet)
+    {
+        Globals.BuffersManager.SetBuf(packet.id_buf, packet.content);
     }
 
 

@@ -2,8 +2,7 @@
 
 static class Globals
 {
-        static int NumberOfBuffers = 2;
-        public static BuffersManager BuffersManager = new BuffersManager(NumberOfBuffers);  // Initiate Buffers;
+        public static BuffersManager BuffersManager = new BuffersManager(2);  // Initiate 2 Buffers;
 }
 
 
@@ -29,20 +28,22 @@ class Program
     }
 
 
-    static void InitServer()
+    static BuffclipServer InitServer()
     {
         BuffclipServer server = new BuffclipServer("0.0.0.0", 4443);        // Default values for now
         Thread thread = new Thread(server.Start);     // Starts server and handles client connections
         thread.IsBackground = true;
         thread.Start();
+        return server;
     }
 
-    static void InitClient()
+    static BuffclipClient InitClient()
     {
         BuffclipClient client = new BuffclipClient("192.168.1.47", 4443);
         Thread thread = new Thread(client.Start);
         thread.IsBackground = true;
-        thread.Start(); 
+        thread.Start();
+        return client;
     }
 
     
@@ -56,8 +57,8 @@ class Program
         {
             case "server":
                 {
-                    InitServer(); // Initiates server at 0.0.0.0:4444 Consider adjusting this via Parameters
-                    HotkeyManager.ListenForKeyPress(); // Waits for KeyPress/KeyRelease Events
+                    BuffclipServer server = InitServer(); // Initiates server at 0.0.0.0:4443 Consider adjusting this via Parameters
+                    HotkeyManager.ListenForKeyPress(server); // Waits for KeyPress/KeyRelease Events
                     break;
                 }
 
@@ -67,8 +68,8 @@ class Program
                         Console.WriteLine("Usage: buffclip client <ip>");
                         return;
                     }
-                    InitClient(); // Initiates client and listens for Server packet
-                    HotkeyManager.ListenForKeyPress();
+                    BuffclipClient client = InitClient(); // Initiates client and listens for Server packet
+                    HotkeyManager.ListenForKeyPress(client);
                     break;
                 }
 
