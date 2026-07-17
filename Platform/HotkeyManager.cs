@@ -49,19 +49,24 @@ class HotkeyManager
 
                 if (ev.type == KeyRelease) {
                     if (ev.xkey.keycode == f1_keycode) 
+                    {
                         Globals.BuffersManager.CopyToBuffer(0);
                         network.SendUpdateBuffer(0);
+                    }
 
                     if (ev.xkey.keycode == f2_keycode) 
                         Globals.BuffersManager.PasteFromBuffer(dpy, 0);
 
                     if (ev.xkey.keycode == f3_keycode) 
+                    {
                         Globals.BuffersManager.CopyToBuffer(1);
                         network.SendUpdateBuffer(1);
+                    }
 
                     if (ev.xkey.keycode == f4_keycode) 
                         Globals.BuffersManager.PasteFromBuffer(dpy, 1);
-            }   }
+                }
+            }
         }
         catch (Exception ex) {
             Console.WriteLine(ex);
