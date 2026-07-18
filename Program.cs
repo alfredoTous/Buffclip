@@ -25,13 +25,22 @@ class Program
 
     // ==== Mode launchers =========================
 
-    public static void RunServerMode(string[] interfaces, int port)
+    public static void RunServerMode(string[] interfaces, int port, bool noDiscover)
     {
         BuffclipServer server = InitServer(interfaces, port);
 
-        // Init udp listener for automatic client discovery
-        Thread thread = new Thread(server.StartDiscoveryListener);
-        thread.Start();
+        if (!noDiscover)
+        {
+            // Init udp listener for automatic client discovery
+            Console.WriteLine("[i] Starting UDP listener on background for automatic client discovery");
+            Thread thread = new Thread(server.StartDiscoveryListener);
+            thread.IsBackground = true;
+            thread.Start();
+        }
+        else
+        {
+            Console.WriteLine("[i] UDP discovery listener disabled");
+        }
 
         HotkeyManager.ListenForKeyPress(server);
     }
@@ -129,17 +138,24 @@ static class ArgParser
         };
         portOption.Aliases.Add("-p");
 
+        var noDiscoverOption = new Option<bool>("--no-discover")
+        {
+            Description = "Disable the UDP broadcast listener used for automatic client discovery."
+        };
+
         cmd.Options.Add(interfaceOption);
         cmd.Options.Add(portOption);
+        cmd.Options.Add(noDiscoverOption);
 
         cmd.SetAction(parseResult =>
         {
             string[] interfaces = ParseInterfaces(parseResult.GetValue(interfaceOption));
             int      port       = parseResult.GetValue(portOption);
+            bool     noDiscover = parseResult.GetValue(noDiscoverOption);
 
             if (!ConfirmIfBroadcastInterface(interfaces)) return;
 
-            Program.RunServerMode(interfaces, port);
+            Program.RunServerMode(interfaces, port, noDiscover);
         });
 
         return cmd;
