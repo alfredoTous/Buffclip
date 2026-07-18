@@ -10,7 +10,7 @@ class BuffclipClient : NetworkManager
     {
         this.ip      = ip;
         this.port    = port;
-        this.node_id = 2; // 2 for now
+        this.node_id = 0; // Will be assigned by the server upon connection
     }
 
     public void Start()
@@ -27,6 +27,18 @@ class BuffclipClient : NetworkManager
         this.client.Connect(this.ip, this.port);
 
         this.NetStream = this.client.GetStream();
+
+        // Receive the node_id assigned by the server
+        Packet assignPacket = this.ReceivePacket();
+        if (assignPacket.opcode == Opcode.AssignNodeId)
+        {
+            this.node_id = assignPacket.id_buf;
+            Console.WriteLine($"[+] Assigned node_id: {this.node_id}");
+        }
+        else
+        {
+            throw new Exception($"[-] Expected AssignNodeId packet, got opcode {assignPacket.opcode}");
+        }
     }
 
     private void SendFullSyncRequest()
@@ -71,6 +83,11 @@ class BuffclipClient : NetworkManager
                 {
                     case Opcode.UpdateBuffer:
                         this.HandleUpdateBuffer(packet);
+                        break;
+
+                    case Opcode.AssignNodeId:
+                        this.node_id = packet.id_buf;
+                        Console.WriteLine($"[+] node_id reassigned to: {this.node_id}");
                         break;
 
                     default:

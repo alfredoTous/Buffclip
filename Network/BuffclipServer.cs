@@ -43,6 +43,10 @@ class BuffclipServer : NetworkManager
                 ClientConnection clientConnection = new ClientConnection(assignedId, client);
                 Console.WriteLine($"[+] Client connected: {client.Client.RemoteEndPoint} (Assigned Node ID: {assignedId})");
 
+                // Notify the client of its assigned node_id right away
+                Packet assignPacket = new Packet(this.node_id, Opcode.AssignNodeId, assignedId, "");
+                clientConnection.SendPacket(assignPacket);
+
                 Thread thread = new Thread(() => HandleClient(clientConnection));
                 thread.IsBackground = true;
                 thread.Start();
