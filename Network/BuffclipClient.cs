@@ -1,3 +1,4 @@
+using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Net;
 
@@ -116,28 +117,80 @@ class BuffclipClient : NetworkManager
         Console.WriteLine($"[i] Searching for server via broadcast on port {port}...");
         using UdpClient udp = new UdpClient();
         udp.EnableBroadcast = true;
+        udp.Client.ReceiveTimeout = 300;
 
         Packet packet = new Packet(0, Opcode.Discover);
         byte[] packetBytes = packet.ToBytes();
 
-        udp.Send(packetBytes, packetBytes.Length, new IPEndPoint(IPAddress.Broadcast, port));
-
-        udp.Client.ReceiveTimeout = 1500;
-
-        try {
-            IPEndPoint remote = new IPEndPoint(IPAddress.Any, 0);
-            byte[] response = udp.Receive(ref remote);
-
-            Packet responsePacket = Packet.FromBytes(response);
-
-            if (responsePacket.opcode == Opcode.DiscoverResponse) {
-                return remote.Address.ToString();
-            }
-        } catch (SocketException)
+        foreach (NetworkInterface nic in NetworkInterface.GetAllNetworkInterfaces())
         {
+            if (nic.OperationalStatus != OperationalStatus.Up)
+                continue;
 
+            if (nic.NetworkInterfaceType == NetworkInterfaceType.Loopback)
+                continue;
+
+            IPInterfaceProperties props = nic.GetIPProperties();
+
+            foreach (UnicastIPAddressInformation addr in props.UnicastAddresses)
+            {
+                if (addr.Address.AddressFamily != AddressFamily.InterNetwork)
+                    continue;
+
+                if (addr.IPv4Mask == null)
+                    continue;
+
+                IPAddress broadcast = GetBroadcastAddress(addr.Address, addr.IPv4Mask);
+
+                Console.WriteLine($"{nic.Name} -> {addr.Address} / {addr.IPv4Mask} -> {broadcast}");
+                Console.WriteLine($"[i] Sending Discover to {broadcast}");
+
+                udp.Send(packetBytes, packetBytes.Length, new IPEndPoint(broadcast, port));
+            }
         }
+
+        DateTime end = DateTime.Now.AddMilliseconds(1500);
+
+        while (DateTime.Now < end)
+        {
+            try
+            {
+                IPEndPoint remote = new IPEndPoint(IPAddress.Any, 0);
+
+                byte[] response = udp.Receive(ref remote);
+
+                Packet responsePacket = Packet.FromBytes(response);
+
+                if (responsePacket.opcode != Opcode.DiscoverResponse)
+                    continue;
+
+                if (string.IsNullOrWhiteSpace(responsePacket.content))
+                    continue;
+
+                Console.WriteLine($"[+] Server discovered: {responsePacket.content}");
+
+                return responsePacket.content;
+            }
+            catch (SocketException)
+            {
+                // Receive timeout. Keep trying until the global timeout expires.
+            }
+        }
+
         return null;
+    }
+
+    private static IPAddress GetBroadcastAddress(IPAddress ip, IPAddress mask)
+    {
+        byte[] ipBytes   = ip.GetAddressBytes();
+        byte[] maskBytes = mask.GetAddressBytes();
+
+        byte[] broadcast = new byte[4];
+
+        for (int i = 0; i < 4; i++)
+            broadcast[i] = (byte)(ipBytes[i] | (~maskBytes[i]));
+
+        return new IPAddress(broadcast);
     }
 
 }

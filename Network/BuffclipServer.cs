@@ -1,10 +1,11 @@
-using System.Net.Sockets;
 using System.Net;
+using System.Net.Sockets;
+using System.Net.NetworkInformation;
 
 
 class BuffclipServer : NetworkManager
 {
-    private readonly string[] listenAddresses;
+    private readonly Dictionary<IPAddress, IPAddress?> ListenAddresses = new Dictionary<IPAddress, IPAddress?>(); // Save ip and mask
     private readonly List<ClientConnection> clients = new(); // Mantain a client list
     private readonly object clientsLock = new object();      // Lock for securely managing threads
     private byte nextNodeId = 2;
@@ -20,9 +21,9 @@ class BuffclipServer : NetworkManager
         }
     }
 
-    public BuffclipServer(string[] listenAddresses, int port)
+    public BuffclipServer(Dictionary<IPAddress, IPAddress?> ListenAddresses, int port)
     {
-        this.listenAddresses = listenAddresses;
+        this.ListenAddresses = ListenAddresses;
         this.port            = port;
         this.node_id         = 1; // node_id 1 is the server
     }
@@ -61,11 +62,8 @@ class BuffclipServer : NetworkManager
     public void Start()
     {
         List<TcpListener> listeners = new List<TcpListener>();
-        foreach (var addressStr in listenAddresses)
+        foreach (var ipAddress in this.ListenAddresses.Keys)
         {
-            string trimmed = addressStr.Trim();
-            if (IPAddress.TryParse(trimmed, out IPAddress? ipAddress))
-            {
                 try
                 {
                     TcpListener listener = new TcpListener(ipAddress, this.port);
@@ -75,13 +73,8 @@ class BuffclipServer : NetworkManager
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"[-] Error starting server on {trimmed}:{this.port}: {ex.Message}");
+                    Console.WriteLine($"[-] Error starting server on {ipAddress.ToString()}:{this.port}: {ex.Message}");
                 }
-            }
-            else
-            {
-                Console.WriteLine($"[-] Invalid IP address format: '{trimmed}'");
-            }
         }
 
         if (listeners.Count == 0)
@@ -200,13 +193,73 @@ class BuffclipServer : NetworkManager
             IPEndPoint remote = new IPEndPoint(IPAddress.Any, 0);
             byte[] data = udp.Receive(ref remote);
             Packet packet = Packet.FromBytes(data);
+Console.WriteLine($"Remote IP: {remote.Address}");
+
+foreach (var (_ip, mask) in this.ListenAddresses)
+{
+    Console.WriteLine($"Listen IP: {_ip}  Mask: {mask}");
+    Console.WriteLine($"Same subnet? {IsSameSubnet(_ip, remote.Address, mask)}");
+}
 
             if (packet.opcode != Opcode.Discover)
                 continue;
+            
+            string? responseIp = null;
+           
+            foreach (var (listenIp, mask) in this.ListenAddresses)
+            {
+                if (IsSameSubnet(listenIp, remote.Address, mask))
+                {
+                    responseIp = listenIp.ToString();
+                    break;
+                }
+            }
 
-            Packet responsePacket = new Packet(0, Opcode.DiscoverResponse);
+            // Client is not in any subnet we are listening on.
+            // Ignore the packet.
+            if (responseIp == null)
+                continue;
+
+
+Console.WriteLine($"Responding with: {responseIp}");
+            Packet responsePacket = new Packet(0, Opcode.DiscoverResponse, 0, responseIp);
             byte[] packetBytes = responsePacket.ToBytes();
             udp.Send(packetBytes, packetBytes.Length, remote);
         }
+    }
+
+
+    public static IPAddress? GetSubnetMask(IPAddress ip) 
+    {
+        foreach (NetworkInterface nic in NetworkInterface.GetAllNetworkInterfaces())
+        {
+            foreach (UnicastIPAddressInformation addr in nic.GetIPProperties().UnicastAddresses)
+            {
+                if (addr.Address.AddressFamily != AddressFamily.InterNetwork)
+                    continue;
+
+                if (addr.Address.Equals(ip))
+                    return addr.IPv4Mask;
+            }
+        }
+
+        return null;
+    }
+
+    private static bool IsSameSubnet(IPAddress a, IPAddress b, IPAddress? mask)
+    {
+        if (mask == null) return false;
+
+        byte[] aa = a.GetAddressBytes();
+        byte[] bb = b.GetAddressBytes();
+        byte[] mm = mask.GetAddressBytes();
+
+        for (int i = 0; i < aa.Length; i++)
+        {
+            if ((aa[i] & mm[i]) != (bb[i] & mm[i]))
+                return false;
+        }
+
+        return true;
     }
 }

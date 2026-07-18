@@ -1,4 +1,6 @@
 using System.CommandLine;
+using System.Net;
+using System.Text;
 
 
 // Global state for buffers
@@ -27,7 +29,22 @@ class Program
 
     public static void RunServerMode(string[] interfaces, int port, bool noDiscover)
     {
-        BuffclipServer server = InitServer(interfaces, port);
+        Dictionary<IPAddress, IPAddress?> ListenAddresses = new Dictionary<IPAddress, IPAddress?>();
+
+        foreach (string i in interfaces)
+        {
+            if (!IPAddress.TryParse(i, out IPAddress? ip))
+                throw new Exception($"Invalid IP address format: {i}");
+
+            IPAddress? mask = BuffclipServer.GetSubnetMask(ip);
+            ListenAddresses.Add(ip, mask);
+        }
+        foreach (var (ip, mask) in ListenAddresses)
+{
+    Console.WriteLine($"Configured interface: {ip} Mask: {mask}");
+}
+
+        BuffclipServer server = InitServer(ListenAddresses, port);
 
         if (!noDiscover)
         {
@@ -61,9 +78,9 @@ class Program
 
     // ==== Initialisers ===========================
 
-    private static BuffclipServer InitServer(string[] listenAddresses, int port)
+    private static BuffclipServer InitServer(Dictionary<IPAddress, IPAddress?> ListenAddresses, int port)
     {
-        BuffclipServer server = new BuffclipServer(listenAddresses, port);
+        BuffclipServer server = new BuffclipServer(ListenAddresses, port);
         Thread thread = new Thread(server.Start);   // Starts server and handles client connections
         thread.IsBackground = true;
         thread.Start();
