@@ -1,23 +1,62 @@
 using System.CommandLine;
 
+
+// Global state for buffers
 static class Globals
 {
-        public static BuffersManager BuffersManager = new BuffersManager(2);  // Initiate 2 Buffers;
+    public static BuffersManager BuffersManager = new BuffersManager(2);  // Initiate 2 Buffers
 }
 
 
+// ==============================================
+// =============== Entry point ==================
+// ==============================================
+
 class Program
 {
-    public static BuffclipServer InitServer(string[] listenAddresses, int port)
+    static int Main(string[] args)
+    {
+        if (!PlatformGuard.CheckX11()) return 1;
+
+        RootCommand cli = ArgParser.BuildCli();
+        return cli.Parse(args).Invoke();
+    }
+
+
+    // ==== Mode launchers =========================
+
+    public static void RunServerMode(string[] interfaces, int port)
+    {
+        BuffclipServer server = InitServer(interfaces, port);
+        HotkeyManager.ListenForKeyPress(server);
+    }
+
+    public static void RunLocalMode()
+    {
+        Console.WriteLine("[i] Starting in local-only mode...");
+        LocalNetworkManager localManager = new LocalNetworkManager();
+        HotkeyManager.ListenForKeyPress(localManager);
+    }
+
+    public static void RunClientMode(string ip, int port)
+    {
+        BuffclipClient client = InitClient(ip, port);
+        HotkeyManager.ListenForKeyPress(client);
+    }
+
+
+    // ==== Initialisers ===========================
+
+    private static BuffclipServer InitServer(string[] listenAddresses, int port)
     {
         BuffclipServer server = new BuffclipServer(listenAddresses, port);
-        Thread thread = new Thread(server.Start);                       // Starts server and handles client connections
+        Thread thread = new Thread(server.Start);   // Starts server and handles client connections
         thread.IsBackground = true;
         thread.Start();
         return server;
     }
 
-    public static BuffclipClient InitClient(string ip, int port)
+    private static BuffclipClient InitClient(string ip, int port)
     {
         BuffclipClient client = new BuffclipClient(ip, port);
         Thread thread = new Thread(client.Start);
@@ -25,118 +64,123 @@ class Program
         thread.Start();
         return client;
     }
+}
 
-    public static string? DiscoverServerViaBroadcast(int port)
-    {
-        // TODO: Implement UDP broadcast to discover the server IP automatically.
-        Console.WriteLine($"[i] Searching for server via broadcast on port {port}...");
-        return null;
-    }
 
-    
-    static int Main(string[] args)
+// ============================================
+// ============= Platform guard ===============
+// ============================================
+
+static class PlatformGuard
+{
+    public static bool CheckX11()
     {
-        if (Environment.GetEnvironmentVariable("XDG_SESSION_TYPE") == "wayland") {
+        if (Environment.GetEnvironmentVariable("XDG_SESSION_TYPE") == "wayland")
+        {
             Console.WriteLine("[-] Wayland session detected");
             Console.WriteLine("[-] Buffclip is currently only supported on X11");
-            return 1;
+            return false;
         }
-
-        return ArgParser.Create().Parse(args).Invoke();
+        return true;
     }
 }
 
 
+// =============================================
+// ============ CLI argument parser ============
+// =============================================
+
 static class ArgParser
 {
-    public static RootCommand Create()
+    public static RootCommand BuildCli()
     {
         var rootCommand = new RootCommand("Buffclip - Network clipboard manager");
 
-        // Server command
-        var serverCommand = new Command("server", "Start Buffclip in server mode.");
-        
-        var serverInterfaceOption = new Option<string[]>("--interface")
+        rootCommand.Subcommands.Add(BuildServerCommand());
+        rootCommand.Subcommands.Add(BuildLocalCommand());
+        rootCommand.Subcommands.Add(BuildClientCommand());
+
+        return rootCommand;
+    }
+
+
+    // ==== server =============================
+
+    private static Command BuildServerCommand()
+    {
+        var cmd = new Command("server", "Start Buffclip in server mode.");
+
+        var interfaceOption = new Option<string[]>("--interface")
         {
             Description = "Interface(s) to listen on. Can be specified multiple times.",
             DefaultValueFactory = _ => new[] { "0.0.0.0" }
         };
-        serverInterfaceOption.Aliases.Add("-i");
-        
-        var serverPortOption = new Option<int>("--port")
+        interfaceOption.Aliases.Add("-i");
+
+        var portOption = new Option<int>("--port")
         {
             Description = "Port to listen on.",
             DefaultValueFactory = _ => 4242
         };
-        serverPortOption.Aliases.Add("-p");
-        
-        serverCommand.Options.Add(serverInterfaceOption);
-        serverCommand.Options.Add(serverPortOption);
-        
-        serverCommand.SetAction(parseResult =>
+        portOption.Aliases.Add("-p");
+
+        cmd.Options.Add(interfaceOption);
+        cmd.Options.Add(portOption);
+
+        cmd.SetAction(parseResult =>
         {
-            var rawInterfaces = parseResult.GetValue(serverInterfaceOption) ?? new[] { "0.0.0.0" };
-            var port = parseResult.GetValue(serverPortOption);
-            
-            var interfaces = rawInterfaces
-                .SelectMany(i => i.Split(',', StringSplitOptions.RemoveEmptyEntries))
-                .Select(i => i.Trim())
-                .ToArray();
+            string[] interfaces = ParseInterfaces(parseResult.GetValue(interfaceOption));
+            int      port       = parseResult.GetValue(portOption);
 
-            if (interfaces.Contains("0.0.0.0"))
-            {
-                Console.ForegroundColor = ConsoleColor.Yellow;
-                Console.WriteLine("[!] WARNING: Listening on '0.0.0.0' (all interfaces) exposes Buffclip to your entire network.");
-                Console.WriteLine("    If you want to restrict this, use the '-i' / '--interface' option to specify a single or multiple interfaces (e.g. '-i 127.0.0.1').");
-                Console.Write("    Are you on a secure/trusted network and sure you want to proceed? [y/N]: ");
-                Console.ResetColor();
-                string? response = Console.ReadLine();
-                if (response == null || (!response.Trim().Equals("y", StringComparison.OrdinalIgnoreCase) && !response.Trim().Equals("yes", StringComparison.OrdinalIgnoreCase)))
-                {
-                    Console.WriteLine("[-] Operation cancelled by user. Server exiting.");
-                    return;
-                }
-            }
+            if (!ConfirmIfBroadcastInterface(interfaces)) return;
 
-            BuffclipServer server = Program.InitServer(interfaces, port);
-            HotkeyManager.ListenForKeyPress(server);
+            Program.RunServerMode(interfaces, port);
         });
 
-        // Local command
-        var localCommand = new Command("local", "Start Buffclip in local-only mode (no network listening).");
-        localCommand.SetAction(parseResult =>
-        {
-            Console.WriteLine("[i] Starting in local-only mode...");
-            LocalNetworkManager localManager = new LocalNetworkManager();
-            HotkeyManager.ListenForKeyPress(localManager);
-        });
+        return cmd;
+    }
 
-        // Client command
-        var clientCommand = new Command("client", "Connect to a Buffclip server.");
-        
-        var clientIpOption = new Option<string>("--ip")
+
+    // ==== local ==================================
+
+    private static Command BuildLocalCommand()
+    {
+        var cmd = new Command("local", "Start Buffclip in local-only mode (no network listening).");
+
+        cmd.SetAction(_ => Program.RunLocalMode());
+
+        return cmd;
+    }
+
+
+    // ==== client ==============================
+    private static Command BuildClientCommand()
+    {
+        var cmd = new Command("client", "Connect to a Buffclip server.");
+
+        var ipOption = new Option<string>("--ip")
         {
             Description = "IP address of the server to connect to. If omitted, Buffclip will attempt to find the server via broadcast."
         };
-        
-        var clientPortOption = new Option<int>("--port")
+
+        var portOption = new Option<int>("--port")
         {
             Description = "Port of the server to connect to.",
             DefaultValueFactory = _ => 4242
         };
-        clientPortOption.Aliases.Add("-p");
+        portOption.Aliases.Add("-p");
 
-        clientCommand.Options.Add(clientIpOption);
-        clientCommand.Options.Add(clientPortOption);
+        cmd.Options.Add(ipOption);
+        cmd.Options.Add(portOption);
 
-        clientCommand.SetAction(parseResult =>
+        cmd.SetAction(parseResult =>
         {
-            var ip = parseResult.GetValue(clientIpOption);
-            var port = parseResult.GetValue(clientPortOption);
+            string? ip   = parseResult.GetValue(ipOption);
+            int     port = parseResult.GetValue(portOption);
 
             if (string.IsNullOrEmpty(ip))
             {
-                ip = Program.DiscoverServerViaBroadcast(port);
+                ip = BuffclipClient.DiscoverServerViaBroadcast(port);
                 if (string.IsNullOrEmpty(ip))
                 {
                     Console.WriteLine("[-] Could not find a server automatically. Please specify one with --ip.");
@@ -144,16 +188,36 @@ static class ArgParser
                 }
             }
 
-            BuffclipClient client = Program.InitClient(ip, port);
-            HotkeyManager.ListenForKeyPress(client);
+            Program.RunClientMode(ip, port);
         });
 
-        rootCommand.Subcommands.Add(serverCommand);
-        rootCommand.Subcommands.Add(localCommand);
-        rootCommand.Subcommands.Add(clientCommand);
+        return cmd;
+    }
 
-        return rootCommand;
+
+    // ==== Helpers ========================================
+
+    private static string[] ParseInterfaces(string[]? raw)
+    {
+        return (raw ?? new[] { "0.0.0.0" })
+            .SelectMany(i => i.Split(',', StringSplitOptions.RemoveEmptyEntries))
+            .Select(i => i.Trim())
+            .ToArray();
+    }
+
+    private static bool ConfirmIfBroadcastInterface(string[] interfaces)
+    {
+        if (!interfaces.Contains("0.0.0.0")) return true;
+
+        Console.ForegroundColor = ConsoleColor.Yellow;
+        Console.WriteLine("[!] WARNING: Listening on '0.0.0.0' (all interfaces) exposes Buffclip to your entire network.");
+        Console.WriteLine("    If you want to restrict this, use the '-i' / '--interface' option to specify a single interface (e.g. '-i 127.0.0.1').");
+        Console.Write("    Are you on a secure/trusted network and sure you want to proceed? [y/N]: ");
+        Console.ResetColor();
+
+        string? response = Console.ReadLine();
+        return response != null
+            && (response.Trim().Equals("y",   StringComparison.OrdinalIgnoreCase)
+            ||  response.Trim().Equals("yes", StringComparison.OrdinalIgnoreCase));
     }
 }
-
-
