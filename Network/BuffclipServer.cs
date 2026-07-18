@@ -184,4 +184,25 @@ class BuffclipServer : NetworkManager
             }
         }
     }
+
+
+    // Starts udp listener that handles Discover Packets
+    public void StartDiscoveryListener()
+    {
+        UdpClient udp = new UdpClient(this.port);
+
+        while (true) {
+            
+            IPEndPoint remote = new IPEndPoint(IPAddress.Any, 0);
+            byte[] data = udp.Receive(ref remote);
+            Packet packet = Packet.FromBytes(data);
+
+            if (packet.opcode != Opcode.Discover)
+                continue;
+
+            Packet responsePacket = new Packet(0, Opcode.DiscoverResponse);
+            byte[] packetBytes = responsePacket.ToBytes();
+            udp.Send(packetBytes, packetBytes.Length, remote);
+        }
+    }
 }

@@ -28,6 +28,11 @@ class Program
     public static void RunServerMode(string[] interfaces, int port)
     {
         BuffclipServer server = InitServer(interfaces, port);
+
+        // Init udp listener for automatic client discovery
+        Thread thread = new Thread(server.StartDiscoveryListener);
+        thread.Start();
+
         HotkeyManager.ListenForKeyPress(server);
     }
 
@@ -176,19 +181,19 @@ static class ArgParser
         cmd.SetAction(parseResult =>
         {
             string? ip   = parseResult.GetValue(ipOption);
-            int     port = parseResult.GetValue(portOption);
-
+            int?     port = parseResult.GetValue(portOption);
+            
             if (string.IsNullOrEmpty(ip))
             {
-                ip = BuffclipClient.DiscoverServerViaBroadcast(port);
+                
+                ip = BuffclipClient.DiscoverServerViaBroadcast(port ?? 4242);
                 if (string.IsNullOrEmpty(ip))
                 {
                     Console.WriteLine("[-] Could not find a server automatically. Please specify one with --ip.");
                     return;
                 }
             }
-
-            Program.RunClientMode(ip, port);
+            Program.RunClientMode(ip, port ?? 4242);
         });
 
         return cmd;
@@ -211,7 +216,7 @@ static class ArgParser
 
         Console.ForegroundColor = ConsoleColor.Yellow;
         Console.WriteLine("[!] WARNING: Listening on '0.0.0.0' (all interfaces) exposes Buffclip to your entire network.");
-        Console.WriteLine("    If you want to restrict this, use the '-i' / '--interface' option to specify a single interface (e.g. '-i 127.0.0.1').");
+        Console.WriteLine("    If you want to restrict this, use the '-i' / '--interface' option to specify a single or multiple interfaces (e.g. '-i 127.0.0.1').");
         Console.Write("    Are you on a secure/trusted network and sure you want to proceed? [y/N]: ");
         Console.ResetColor();
 

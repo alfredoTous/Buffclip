@@ -61,8 +61,11 @@ abstract class NetworkManager
 
 enum Opcode : byte
 {
-    UpdateBuffer  = 1, // Update buffer
-    FullSync      = 2  // When a new machine is connected
+    UpdateBuffer     = 1, // Update buffer
+    FullSync         = 2, // When a new machine is connected, sync buffers
+    Discover         = 3, // Used by client for automatic discover of buffclip server
+    DiscoverResponse = 4, // Used by server to respond to a Discover packet
+    AssignNodeId     = 5  // Used by server to send client its assigned node_id
 }
 
 

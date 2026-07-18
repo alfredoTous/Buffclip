@@ -1,4 +1,5 @@
 using System.Net.Sockets;
+using System.Net;
 
 class BuffclipClient : NetworkManager
 {
@@ -90,6 +91,36 @@ class BuffclipClient : NetworkManager
             this.NetStream = null;
             this.client = null;
         }
+    }
+
+    // UDP broadcast to discover the server IP automatically
+    public static string? DiscoverServerViaBroadcast(int port)
+    {
+        Console.WriteLine($"[i] Searching for server via broadcast on port {port}...");
+        using UdpClient udp = new UdpClient();
+        udp.EnableBroadcast = true;
+
+        Packet packet = new Packet(0, Opcode.Discover);
+        byte[] packetBytes = packet.ToBytes();
+
+        udp.Send(packetBytes, packetBytes.Length, new IPEndPoint(IPAddress.Broadcast, port));
+
+        udp.Client.ReceiveTimeout = 1500;
+
+        try {
+            IPEndPoint remote = new IPEndPoint(IPAddress.Any, 0);
+            byte[] response = udp.Receive(ref remote);
+
+            Packet responsePacket = Packet.FromBytes(response);
+
+            if (responsePacket.opcode == Opcode.DiscoverResponse) {
+                return remote.Address.ToString();
+            }
+        } catch (SocketException)
+        {
+
+        }
+        return null;
     }
 
 }
