@@ -193,13 +193,6 @@ class BuffclipServer : NetworkManager
             IPEndPoint remote = new IPEndPoint(IPAddress.Any, 0);
             byte[] data = udp.Receive(ref remote);
             Packet packet = Packet.FromBytes(data);
-Console.WriteLine($"Remote IP: {remote.Address}");
-
-foreach (var (_ip, mask) in this.ListenAddresses)
-{
-    Console.WriteLine($"Listen IP: {_ip}  Mask: {mask}");
-    Console.WriteLine($"Same subnet? {IsSameSubnet(_ip, remote.Address, mask)}");
-}
 
             if (packet.opcode != Opcode.Discover)
                 continue;
@@ -208,6 +201,13 @@ foreach (var (_ip, mask) in this.ListenAddresses)
            
             foreach (var (listenIp, mask) in this.ListenAddresses)
             {
+                
+                if (listenIp.Equals(IPAddress.Any))
+                {
+                    responseIp = GetLocalAddressFor(remote.Address)?.ToString();
+                    break;
+                }
+
                 if (IsSameSubnet(listenIp, remote.Address, mask))
                 {
                     responseIp = listenIp.ToString();
@@ -220,8 +220,6 @@ foreach (var (_ip, mask) in this.ListenAddresses)
             if (responseIp == null)
                 continue;
 
-
-Console.WriteLine($"Responding with: {responseIp}");
             Packet responsePacket = new Packet(0, Opcode.DiscoverResponse, 0, responseIp);
             byte[] packetBytes = responsePacket.ToBytes();
             udp.Send(packetBytes, packetBytes.Length, remote);
@@ -261,5 +259,33 @@ Console.WriteLine($"Responding with: {responseIp}");
         }
 
         return true;
+    }
+
+    private static IPAddress? GetLocalAddressFor(IPAddress remoteIp)
+    {
+        foreach (NetworkInterface nic in NetworkInterface.GetAllNetworkInterfaces())
+        {
+            if (nic.OperationalStatus != OperationalStatus.Up)
+                continue;
+
+            if (nic.NetworkInterfaceType == NetworkInterfaceType.Loopback)
+                continue;
+
+            IPInterfaceProperties props = nic.GetIPProperties();
+
+            foreach (UnicastIPAddressInformation addr in props.UnicastAddresses)
+            {
+                if (addr.Address.AddressFamily != AddressFamily.InterNetwork)
+                    continue;
+
+                if (addr.IPv4Mask == null)
+                    continue;
+
+                if (IsSameSubnet(addr.Address, remoteIp, addr.IPv4Mask))
+                    return addr.Address;
+            }
+        }
+
+        return null;
     }
 }

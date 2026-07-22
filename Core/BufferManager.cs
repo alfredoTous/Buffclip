@@ -12,7 +12,6 @@ class BuffersManager
         for (int i = 0; i < this.NumberOfBuffers; i++)
             buffers[i] = "";
 
-        //this.clip = new ClipboardManager();
     }
 
     public bool IsDifferentContent(string content, int id_buf)
