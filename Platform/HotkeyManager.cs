@@ -5,53 +5,21 @@ using System.Diagnostics;
 class HotkeyManager
 {
 
-    static IntPtr display = IntPtr.Zero;
-    static ClipboardManager clipboard = null!;
+    static IntPtr display = IntPtr.Zero;        // Connection to X server
+    static ClipboardManager clipboard = null!;  // ClipboardManager
 
+    // ==== virt key values ====
     static int f1_keycode;
     static int f2_keycode;
     static int f3_keycode;
     static int f4_keycode;
+    // =========================
 
-    private static Stopwatch autoRepeatStopwatchF2 = new Stopwatch();
-    private static bool isAutoRepeatingF2 = false;
+    // =============== auto repeat ===================
+    private static KeyAutoRepeat f2AutoRepeat = null!;
+    private static KeyAutoRepeat f4AutoRepeat = null!;
+    // ===============================================
 
-    private static Stopwatch autoRepeatStopwatchF4 = new Stopwatch();
-    private static bool isAutoRepeatingF4 = false;
-
-    public static int ignoreF2PressCount = 0;
-    public static int ignoreF2ReleaseCount = 0;
-    public static int ignoreF4PressCount = 0;
-    public static int ignoreF4ReleaseCount = 0;
-
-    private static class KeyState
-    {
-        public static bool f1Down = false;
-        public static bool f2Down = false;
-        public static bool f3Down = false;
-        public static bool f4Down = false;
-       
-        // When F1+F2+F3+F4 are pressed we activate/deactivate the key global grabbing
-        public static bool combo => (KeyState.f1Down && KeyState.f2Down && KeyState.f3Down && KeyState.f4Down);
-        public static bool toggleComboActive = false;
-
-        public static bool CheckCombo()
-        {
-            if (KeyState.combo)
-            {
-                if (!KeyState.toggleComboActive)
-                {
-                    KeyState.toggleComboActive = true;
-                    return true;
-                }
-            }
-            else
-            {
-                KeyState.toggleComboActive = false;
-            }
-            return false;
-        }
-    }
 
     // Main Thread
     public static void ListenForKeyPress(NetworkManager network)
@@ -83,6 +51,9 @@ class HotkeyManager
         f2_keycode = XKeysymToKeycode(display, XK_F2); // Translate from logic virtual key (F2) value to physical keycode
         f3_keycode = XKeysymToKeycode(display, XK_F3); // Translate from logic virtual key (F3) value to physical keycode
         f4_keycode = XKeysymToKeycode(display, XK_F4); // Translate from logic virtual key (F4) value to physical keycode
+
+        f2AutoRepeat = new KeyAutoRepeat(f2_keycode, 1, "F2");
+        f4AutoRepeat = new KeyAutoRepeat(f4_keycode, 2, "F4");
 
 
         // Used to grab combinations of keys such as {key}+CapsLock, etc
@@ -121,47 +92,8 @@ class HotkeyManager
                 }
                 else
                 {
-                    if (isAutoRepeatingF2)
-                    {
-                        bool f2Down = IsPhysicalKeyDown(display, f2_keycode);
-                        // We use a 150ms buffer to allow physical key state to settle or fake release to not break us immediately
-                        if (!f2Down && autoRepeatStopwatchF2.ElapsedMilliseconds > 150)
-                        {
-                            isAutoRepeatingF2 = false;
-                            Console.WriteLine("Auto-repeat F2 STOPPED.");
-                            autoRepeatStopwatchF2.Stop();
-                        }
-                        else if (f2Down && autoRepeatStopwatchF2.ElapsedMilliseconds > 150) // 150ms auto-repeat delay (faster)
-                        {
-                            if (!clipboard.IsPasting) 
-                            {
-                                Console.WriteLine("Auto-repeat F2 TRIGGER!");
-                                clipboard.BeginPasteBufferContent(1);
-                                autoRepeatStopwatchF2.Restart();
-                            }
-                        }
-                    }
-
-                    if (isAutoRepeatingF4)
-                    {
-                        bool f4Down = IsPhysicalKeyDown(display, f4_keycode);
-                        if (!f4Down && autoRepeatStopwatchF4.ElapsedMilliseconds > 150)
-                        {
-                            isAutoRepeatingF4 = false;
-                            Console.WriteLine("Auto-repeat F4 STOPPED.");
-                            autoRepeatStopwatchF4.Stop();
-                        }
-                        else if (f4Down && autoRepeatStopwatchF4.ElapsedMilliseconds > 150)
-                        {
-                            if (!clipboard.IsPasting) 
-                            {
-                                Console.WriteLine("Auto-repeat F4 TRIGGER!");
-                                clipboard.BeginPasteBufferContent(2);
-                                autoRepeatStopwatchF4.Restart();
-                            }
-                        }
-                    }
-
+                    f2AutoRepeat.ProcessMainLoop(display);
+                    f4AutoRepeat.ProcessMainLoop(display);
                     System.Threading.Thread.Sleep(10);
                 }
             }
@@ -177,7 +109,8 @@ class HotkeyManager
         switch (ev.type)
         {
             case KeyPress:
-            { 
+            {
+                // ========== Check for combo F1+F2+F3+F4 ==========
                 UpdateKeyState(ev.xkey, true);
 
                 if (KeyState.CheckCombo())
@@ -185,82 +118,34 @@ class HotkeyManager
                     Console.WriteLine("TOGGLE!");
                     return;
                 }
+                // =================================================
+
+
+                // ========== Check which key wass pressed =========
                 // Buffer 1
                 if (ev.xkey.keycode == f1_keycode) 
                 { 
                     // Triggers SelectionNotify event (XConvertSelection Api)
-                    Console.WriteLine("F1 ACTION");
                     clipboard.RequestSelectionContent("PRIMARY", 1);
-                    // This usually triggers 2 SelectionNotify events, first to get the targets (formats we support) and the other with the actual content of the selection (in this case PRIMARY)
-                    // When the actual content of the selection is got, clipboard.HandleSelectionNotify internally invokes PrimaryContentReceived (event we subscribe) 
-                    // This event copies content to buffer[id_buf] and forwards to network if connected
-
                 }
-
-                if (ev.xkey.keycode == f2_keycode)
+                else if (ev.xkey.keycode == f3_keycode) 
                 {
-                    if (ignoreF2PressCount > 0)
-                    {
-                        ignoreF2PressCount--;
-                        return; // Ignore fake press
-                    }
-                    if (clipboard.IsPasting) return;
-                    
-                    // Prevent overlapping pastes from X11 auto-repeat if it kicks in
-                    if (isAutoRepeatingF2 && autoRepeatStopwatchF2.ElapsedMilliseconds < 120)
-                        return;
-
-                    // Begin pasting of buffer content
-                    Console.WriteLine("F2 ACTION");
-                    clipboard.BeginPasteBufferContent(1);
-                    isAutoRepeatingF2 = true;
-                    autoRepeatStopwatchF2.Restart();
-                    // It requests CLIPBOARD content for backup which triggers a SelectionNotify event
-                    // Then it simulates CTRL+SHIFT+V for pasting
-                    // After a timeout it restores CLIPBOARD content
-
-                }
-
-                // Buffer 2
-                if (ev.xkey.keycode == f3_keycode) 
-                {
-                    Console.WriteLine("F3 ACTION");
                     clipboard.RequestSelectionContent("PRIMARY", 2);
                 }
-
-                if (ev.xkey.keycode == f4_keycode)
+                else
                 {
-                    if (ignoreF4PressCount > 0)
-                    {
-                        ignoreF4PressCount--;
-                        return; 
-                    }
-                    if (clipboard.IsPasting) return;
-                    
-                    if (isAutoRepeatingF4 && autoRepeatStopwatchF4.ElapsedMilliseconds < 120)
-                        return;
-
-                    Console.WriteLine("F4 ACTION");
-                    clipboard.BeginPasteBufferContent(2);
-                    isAutoRepeatingF4 = true;
-                    autoRepeatStopwatchF4.Restart();
+                    if (f2AutoRepeat.HandleKeyPress(ev.xkey)) return;
+                    if (f4AutoRepeat.HandleKeyPress(ev.xkey)) return;
                 }
-
+                
                 break;
             }
 
             case KeyRelease:
             {
-                if (ev.xkey.keycode == f2_keycode && ignoreF2ReleaseCount > 0)
-                {
-                    ignoreF2ReleaseCount--;
-                    return; // Ignore fake release
-                }
-                if (ev.xkey.keycode == f4_keycode && ignoreF4ReleaseCount > 0)
-                {
-                    ignoreF4ReleaseCount--;
-                    return; 
-                }
+                if (f2AutoRepeat.HandleKeyRelease(ev.xkey)) return;
+                if (f4AutoRepeat.HandleKeyRelease(ev.xkey)) return;
+
                 UpdateKeyState(ev.xkey, false);
                 break;
             }
@@ -309,13 +194,13 @@ class HotkeyManager
         uint shift = (uint)XKeysymToKeycode(display, XK_Shift_L);
         uint v     = (uint)XKeysymToKeycode(display, XK_V);
         
-        int source_keycode = (bufferId == 1) ? f2_keycode : f4_keycode;
-        bool wasKeyDown = IsPhysicalKeyDown(display, source_keycode);
+        KeyAutoRepeat state = (bufferId == 1) ? f2AutoRepeat : f4AutoRepeat;
+        bool wasKeyDown = IsPhysicalKeyDown(display, state.KeyCode);
 
         if (wasKeyDown)
         {
-            if (source_keycode == f2_keycode) ignoreF2ReleaseCount++;
-            XTestFakeKeyEvent(display, (uint)source_keycode, false, 0); // Toca hacer esto para que el paste funcione
+            state.IgnoreReleaseCount++;
+            XTestFakeKeyEvent(display, (uint)state.KeyCode, false, 0); 
         }
 
         XTestFakeKeyEvent(display, ctrl, true, 0);   // Ctrl Down
@@ -328,11 +213,111 @@ class HotkeyManager
 
         if (wasKeyDown)
         {
-            if (source_keycode == f2_keycode) ignoreF2PressCount++;
-            XTestFakeKeyEvent(display, (uint)source_keycode, true, 0); // Restauramos F2 para no perder el estado
+            state.IgnorePressCount++;
+            XTestFakeKeyEvent(display, (uint)state.KeyCode, true, 0); 
         }
 
         XFlush(display);
+    }
+
+
+    private static class KeyState
+    {
+        public static bool f1Down = false;
+        public static bool f2Down = false;
+        public static bool f3Down = false;
+        public static bool f4Down = false;
+       
+        // When F1+F2+F3+F4 are pressed we activate/deactivate the key global grabbing
+        public static bool combo => (KeyState.f1Down && KeyState.f2Down && KeyState.f3Down && KeyState.f4Down);
+        public static bool toggleComboActive = false;
+
+        public static bool CheckCombo()
+        {
+            if (KeyState.combo)
+            {
+                if (!KeyState.toggleComboActive)
+                {
+                    KeyState.toggleComboActive = true;
+                    return true;
+                }
+            }
+            else
+            {
+                KeyState.toggleComboActive = false;
+            }
+            return false;
+        }
+    }
+
+    private class KeyAutoRepeat
+    {
+        public Stopwatch Stopwatch = new Stopwatch();
+        public bool IsRepeating = false;
+        public int IgnorePressCount = 0;
+        public int IgnoreReleaseCount = 0;
+        public int KeyCode;
+        public byte BufferId;
+        private string ActionName;
+
+        public KeyAutoRepeat(int keyCode, byte bufferId, string actionName)
+        {
+            this.KeyCode = keyCode;
+            this.BufferId = bufferId;
+            this.ActionName = actionName;
+        }
+
+        public void ProcessMainLoop(IntPtr display)
+        {
+            if (!this.IsRepeating) return;
+
+            bool isPhysicalDown = IsPhysicalKeyDown(display, KeyCode);
+            if (!isPhysicalDown && this.Stopwatch.ElapsedMilliseconds > 150)
+            {
+                this.IsRepeating = false;
+                this.Stopwatch.Stop();
+            }
+            else if (isPhysicalDown && this.Stopwatch.ElapsedMilliseconds > 150)
+            {
+                if (!clipboard.IsPasting) 
+                {
+                    clipboard.BeginPasteBufferContent(BufferId);
+                    this.Stopwatch.Restart();
+                }
+            }
+        }
+
+        public bool HandleKeyPress(XKeyEvent ev)
+        {
+            if (ev.keycode != this.KeyCode) return false;
+
+            if (this.IgnorePressCount > 0)
+            {
+                this.IgnorePressCount--;
+                return true; 
+            }
+            if (clipboard.IsPasting) return true;
+            
+            if (this.IsRepeating && this.Stopwatch.ElapsedMilliseconds < 120)
+                return true;
+
+            clipboard.BeginPasteBufferContent(BufferId);
+            this.IsRepeating = true;
+            this.Stopwatch.Restart();
+            return true;
+        }
+        
+        public bool HandleKeyRelease(XKeyEvent ev)
+        {
+            if (ev.keycode != this.KeyCode) return false;
+
+            if (this.IgnoreReleaseCount > 0)
+            {
+                this.IgnoreReleaseCount--;
+                return true; 
+            }
+            return false;
+        }
     }
 
 }
