@@ -101,6 +101,12 @@ class HotkeyManager
         catch (Exception ex) {
             Console.WriteLine(ex);
         }
+        finally {
+            if (display != IntPtr.Zero)
+            {
+                XCloseDisplay(display);
+            }
+        }
     }
 
 
@@ -125,7 +131,9 @@ class HotkeyManager
                 // Buffer 1
                 if (ev.xkey.keycode == f1_keycode) 
                 { 
-                    // Triggers SelectionNotify event (XConvertSelection Api)
+                    // This triggers (usually 2) SelectionNotify events, first to get the targets (formats we support) and the other with the actual content of the selection (in this case PRIMARY)
+                    // When the actual content of the selection is got, clipboard.HandleSelectionNotify internally invokes PrimaryContentReceived (event we subscribe) 
+                    // This event copies content to buffer[id_buf] and forwards to network if connected
                     clipboard.RequestSelectionContent("PRIMARY", 1);
                 }
                 else if (ev.xkey.keycode == f3_keycode) 
@@ -183,7 +191,7 @@ class HotkeyManager
     public static bool IsPhysicalKeyDown(IntPtr display, int keycode)
     {
         byte[] keys = new byte[32];
-        X11.XQueryKeymap(display, keys);
+        XQueryKeymap(display, keys);
         return (keys[keycode / 8] & (1 << (keycode % 8))) != 0;
     }
 
@@ -194,6 +202,7 @@ class HotkeyManager
         uint shift = (uint)XKeysymToKeycode(display, XK_Shift_L);
         uint v     = (uint)XKeysymToKeycode(display, XK_V);
         
+        // In order to paste need to simulate F2/F4 keys are release
         KeyAutoRepeat state = (bufferId == 1) ? f2AutoRepeat : f4AutoRepeat;
         bool wasKeyDown = IsPhysicalKeyDown(display, state.KeyCode);
 
@@ -254,6 +263,7 @@ class HotkeyManager
     {
         public Stopwatch Stopwatch = new Stopwatch();
         public bool IsRepeating = false;
+        public bool IsFirstRepeat = true;
         public int IgnorePressCount = 0;
         public int IgnoreReleaseCount = 0;
         public int KeyCode;
@@ -272,16 +282,19 @@ class HotkeyManager
             if (!this.IsRepeating) return;
 
             bool isPhysicalDown = IsPhysicalKeyDown(display, KeyCode);
+            int requiredDelay = IsFirstRepeat ? 400 : 150; // Initial delay of 400ms, then 150ms repeats
+
             if (!isPhysicalDown && this.Stopwatch.ElapsedMilliseconds > 150)
             {
                 this.IsRepeating = false;
                 this.Stopwatch.Stop();
             }
-            else if (isPhysicalDown && this.Stopwatch.ElapsedMilliseconds > 150)
+            else if (isPhysicalDown && this.Stopwatch.ElapsedMilliseconds > requiredDelay)
             {
                 if (!clipboard.IsPasting) 
                 {
                     clipboard.BeginPasteBufferContent(BufferId);
+                    this.IsFirstRepeat = false;
                     this.Stopwatch.Restart();
                 }
             }
@@ -298,11 +311,15 @@ class HotkeyManager
             }
             if (clipboard.IsPasting) return true;
             
-            if (this.IsRepeating && this.Stopwatch.ElapsedMilliseconds < 120)
+            if (IsRepeating && this.Stopwatch.ElapsedMilliseconds < 120)
                 return true;
 
+            // It requests CLIPBOARD content for backup which triggers a SelectionNotify event
+            // Then it simulates CTRL+SHIFT+V for pasting
+            // After a timeout it restores CLIPBOARD content
             clipboard.BeginPasteBufferContent(BufferId);
             this.IsRepeating = true;
+            this.IsFirstRepeat = true;
             this.Stopwatch.Restart();
             return true;
         }
